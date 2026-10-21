@@ -29,29 +29,13 @@ const lines = (...code: string[]) => code.join("\n");
 
 export function openDatabase(onClosed: () => void): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    logIndexedDb(
-      `Opening database ${quote(DB_NAME)}, version ${DB_VERSION}`,
-      `indexedDB.open(${quote(DB_NAME)}, ${DB_VERSION})`,
-    );
+    logIndexedDb("Step 1 · Open the database", `indexedDB.open(${quote(DB_NAME)}, ${DB_VERSION})`);
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = (event) => {
+      const versions = `version ${event.oldVersion} to ${event.newVersion}`;
       logIndexedDb(
-        `Upgrade needed: the browser has version ${event.oldVersion}, the app needs version ${event.newVersion}`,
-        "request.onupgradeneeded",
-      );
-      const db = request.result;
-      const oldStores = [...db.objectStoreNames];
-      if (oldStores.length > 0) {
-        logIndexedDb(
-          "Deleting the old object stores",
-          lines(...oldStores.map((name) => `db.deleteObjectStore(${quote(name)})`)),
-        );
-      }
-      for (const name of oldStores) db.deleteObjectStore(name);
-
-      logIndexedDb(
-        "Creating the object stores and indexes",
+        `Step 2 · Create the object stores and indexes (onupgradeneeded: ${versions})`,
         lines(
           `const employees = db.createObjectStore(${quote(EMPLOYEES)}, { keyPath: "id" })`,
           `employees.createIndex("managerId", "managerId")`,
@@ -63,6 +47,9 @@ export function openDatabase(onClosed: () => void): Promise<IDBDatabase> {
           `db.createObjectStore(${quote(META)})`,
         ),
       );
+      const db = request.result;
+      for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name);
+
       const employees = db.createObjectStore(EMPLOYEES, { keyPath: "id" });
       employees.createIndex("managerId", "managerId");
       employees.createIndex("division", "division");
@@ -79,7 +66,7 @@ export function openDatabase(onClosed: () => void): Promise<IDBDatabase> {
 
     request.onsuccess = () => {
       const db = request.result;
-      logIndexedDb(`Connected to ${quote(db.name)}, version ${db.version}`, "request.onsuccess", db);
+      logIndexedDb("Connected to the database", lines("request.onsuccess", "const db = request.result"));
       db.onversionchange = () => {
         logIndexedDb(
           "Another tab is upgrading or deleting the database, so this tab closes its connection",
@@ -88,10 +75,7 @@ export function openDatabase(onClosed: () => void): Promise<IDBDatabase> {
         db.close();
         onClosed();
       };
-      db.onclose = () => {
-        logIndexedDb("The browser closed the connection", "db.onclose");
-        onClosed();
-      };
+      db.onclose = onClosed;
       resolve(db);
     };
 
@@ -101,23 +85,11 @@ export function openDatabase(onClosed: () => void): Promise<IDBDatabase> {
 
 export function clearAll(db: IDBDatabase): Promise<void> {
   return new Promise((resolve, reject) => {
-    logIndexedDb(
-      "Clearing every object store in one readwrite transaction",
-      lines(
-        `const transaction = db.transaction(${list([EMPLOYEES, PHOTOS, META])}, "readwrite")`,
-        `transaction.objectStore(${quote(EMPLOYEES)}).clear()`,
-        `transaction.objectStore(${quote(PHOTOS)}).clear()`,
-        `transaction.objectStore(${quote(META)}).delete("lastSynced")`,
-      ),
-    );
     const transaction = db.transaction([EMPLOYEES, PHOTOS, META], "readwrite");
     transaction.objectStore(EMPLOYEES).clear();
     transaction.objectStore(PHOTOS).clear();
     transaction.objectStore(META).delete("lastSynced");
-    transaction.oncomplete = () => {
-      logIndexedDb("Object stores cleared", "transaction.oncomplete");
-      resolve();
-    };
+    transaction.oncomplete = () => resolve();
     transaction.onabort = () => reject(transaction.error);
   });
 }
@@ -127,17 +99,21 @@ export async function saveEmployees(
   employees: StoredEmployee[],
   onProgress: (saved: number) => void,
 ): Promise<void> {
-  logIndexedDb(
-    `Saving ${formatCount(employees.length)} employees, ${formatCount(CHUNK_SIZE)} per readwrite transaction`,
-    lines(
-      `const transaction = db.transaction(${quote(EMPLOYEES)}, "readwrite")`,
-      `const store = transaction.objectStore(${quote(EMPLOYEES)})`,
-      "for (const employee of chunk) store.put(employee)",
-    ),
-  );
+  const transactions = Math.ceil(employees.length / CHUNK_SIZE);
   for (let start = 0; start < employees.length; start += CHUNK_SIZE) {
     const end = Math.min(start + CHUNK_SIZE, employees.length);
     const sample = start === 0;
+    if (sample) {
+      const message = `Step 3 · Start a readwrite transaction and put employees 1 to ${formatCount(end)}`;
+      logIndexedDb(
+        `${message} (only the first of ${transactions} transactions is logged)`,
+        lines(
+          `const transaction = db.transaction(${quote(EMPLOYEES)}, "readwrite")`,
+          `const store = transaction.objectStore(${quote(EMPLOYEES)})`,
+          "for (const employee of chunk) store.put(employee)",
+        ),
+      );
+    }
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(EMPLOYEES, "readwrite");
       const store = transaction.objectStore(EMPLOYEES);
@@ -145,12 +121,7 @@ export async function saveEmployees(
         store.put(employee);
       }
       transaction.oncomplete = () => {
-        if (sample) {
-          logIndexedDb(
-            `Saved employees ${formatCount(start + 1)} to ${formatCount(end)} (only the first transaction is logged)`,
-            "transaction.oncomplete",
-          );
-        }
+        if (sample) logIndexedDb(`Steps 4-5 · Employees 1 to ${formatCount(end)} are saved`, "transaction.oncomplete");
         resolve();
       };
       transaction.onabort = () => reject(transaction.error);
@@ -161,25 +132,12 @@ export async function saveEmployees(
 
 export function savePhotos(db: IDBDatabase, photos: Photo[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const sample = firstTime("photo batch");
-    if (sample) {
-      logIndexedDb(
-        `Saving ${formatCount(photos.length)} photos as Blobs in one transaction (only the first batch is logged)`,
-        lines(
-          `const store = db.transaction(${quote(PHOTOS)}, "readwrite").objectStore(${quote(PHOTOS)})`,
-          "for (const { employeeId, png } of photos) store.put(png, employeeId)",
-        ),
-      );
-    }
     const transaction = db.transaction(PHOTOS, "readwrite");
     const store = transaction.objectStore(PHOTOS);
     for (const { employeeId, png } of photos) {
       store.put(png, employeeId);
     }
-    transaction.oncomplete = () => {
-      if (sample) logIndexedDb(`Saved ${formatCount(photos.length)} photos`, "transaction.oncomplete");
-      resolve();
-    };
+    transaction.oncomplete = () => resolve();
     transaction.onabort = () => reject(transaction.error);
   });
 }
@@ -196,12 +154,13 @@ export function setLastSynced(db: IDBDatabase, isoDate: string): Promise<void> {
 export function getEmployee(db: IDBDatabase, id: number): Promise<StoredEmployee | undefined> {
   return new Promise((resolve, reject) => {
     logIndexedDb(
-      `Reading employee ${id} by primary key`,
+      `Step 3 · Read employee ${id} by primary key`,
       `db.transaction(${quote(EMPLOYEES)}).objectStore(${quote(EMPLOYEES)}).get(${id})`,
     );
     const request = db.transaction(EMPLOYEES).objectStore(EMPLOYEES).get(id);
     request.onsuccess = () => {
-      logIndexedDb(request.result ? `Got employee ${id}` : `No employee ${id}`, "request.onsuccess", request.result);
+      const message = request.result ? `Got employee ${id}` : `No employee ${id}`;
+      logIndexedDb(`Steps 4-5 · ${message}`, "request.onsuccess", request.result);
       resolve(request.result);
     };
     request.onerror = () => reject(request.error);
@@ -212,7 +171,7 @@ export function getEmployees(db: IDBDatabase, ids: number[]): Promise<StoredEmpl
   if (ids.length === 0) return Promise.resolve([]);
   return new Promise((resolve, reject) => {
     logIndexedDb(
-      `Reading ${ids.length} employees by primary key in one transaction`,
+      "Step 3 · Read the reporting line by primary key in one transaction",
       lines(
         `const store = db.transaction(${quote(EMPLOYEES)}).objectStore(${quote(EMPLOYEES)})`,
         `${list(ids)}.forEach((id) => store.get(id))`,
@@ -231,7 +190,7 @@ export function getEmployees(db: IDBDatabase, ids: number[]): Promise<StoredEmpl
 
     transaction.oncomplete = () => {
       const employees = found.filter(Boolean);
-      logIndexedDb(`Got ${employees.length} employees`, "transaction.oncomplete", employees);
+      logIndexedDb("Steps 4-5 · Got the reporting line", "transaction.oncomplete", employees);
       resolve(employees);
     };
     transaction.onerror = () => reject(transaction.error);
@@ -243,7 +202,7 @@ export function getPhoto(db: IDBDatabase, employeeId: number): Promise<Blob | un
     const sample = firstTime("photo read");
     if (sample) {
       logIndexedDb(
-        `Reading photo ${employeeId} (only the first photo read is logged)`,
+        `Step 3 · Read photo ${employeeId} by primary key (only the first photo is logged)`,
         `db.transaction(${quote(PHOTOS)}).objectStore(${quote(PHOTOS)}).get(${employeeId})`,
       );
     }
@@ -251,7 +210,7 @@ export function getPhoto(db: IDBDatabase, employeeId: number): Promise<Blob | un
     request.onsuccess = () => {
       if (sample) {
         const message = request.result ? `Got photo ${employeeId}` : `No photo ${employeeId}`;
-        logIndexedDb(message, "request.onsuccess", request.result);
+        logIndexedDb(`Steps 4-5 · ${message}`, "request.onsuccess", request.result);
       }
       resolve(request.result);
     };
@@ -262,12 +221,13 @@ export function getPhoto(db: IDBDatabase, employeeId: number): Promise<Blob | un
 export function getDirectReports(db: IDBDatabase, managerId: number): Promise<StoredEmployee[]> {
   return new Promise((resolve, reject) => {
     logIndexedDb(
-      `Reading the direct reports of ${managerId} through the "managerId" index`,
+      `Step 3 · Read the direct reports of ${managerId} through the "managerId" index`,
       `db.transaction(${quote(EMPLOYEES)}).objectStore(${quote(EMPLOYEES)}).index("managerId").getAll(${managerId})`,
     );
     const request = db.transaction(EMPLOYEES).objectStore(EMPLOYEES).index("managerId").getAll(managerId);
     request.onsuccess = () => {
-      logIndexedDb(`Got ${formatCount(request.result.length)} direct reports`, "request.onsuccess", request.result);
+      const message = `Steps 4-5 · Got ${formatCount(request.result.length)} direct reports`;
+      logIndexedDb(message, "request.onsuccess", request.result);
       resolve(request.result);
     };
     request.onerror = () => reject(request.error);
@@ -277,12 +237,13 @@ export function getDirectReports(db: IDBDatabase, managerId: number): Promise<St
 export function getEveryoneUnder(db: IDBDatabase, managerId: number): Promise<StoredEmployee[]> {
   return new Promise((resolve, reject) => {
     logIndexedDb(
-      `Reading everyone under ${managerId} through the "path" index`,
+      `Step 3 · Read everyone under ${managerId} through the "path" index`,
       `db.transaction(${quote(EMPLOYEES)}).objectStore(${quote(EMPLOYEES)}).index("path").getAll(${managerId})`,
     );
     const request = db.transaction(EMPLOYEES).objectStore(EMPLOYEES).index("path").getAll(managerId);
     request.onsuccess = () => {
-      logIndexedDb(`Got ${formatCount(request.result.length)} people`, "request.onsuccess", request.result);
+      const message = `Steps 4-5 · Got ${formatCount(request.result.length)} people`;
+      logIndexedDb(message, "request.onsuccess", request.result);
       resolve(request.result);
     };
     request.onerror = () => reject(request.error);
@@ -299,14 +260,14 @@ export function searchEmployees(
 
     if (tokens.length === 0 && !division && !location) {
       logIndexedDb(
-        `Counting the employees and reading the first ${limit} through the "name" index`,
+        `Step 3 · Count the employees and read the first ${limit} through the "name" index`,
         lines(`store.count()`, `store.index("name").getAll(null, ${limit})`),
       );
       const countRequest = store.count();
       const pageRequest = store.index("name").getAll(null, limit);
       transaction.oncomplete = () => {
         logIndexedDb(
-          `Got ${pageRequest.result.length} of ${formatCount(countRequest.result)} employees`,
+          `Steps 4-5 · Got ${pageRequest.result.length} of ${formatCount(countRequest.result)} employees`,
           "transaction.oncomplete",
           pageRequest.result,
         );
@@ -318,17 +279,17 @@ export function searchEmployees(
 
     let source: IDBObjectStore | IDBIndex = store;
     let range: IDBKeyRange | null = null;
-    let message = "No index covers this filter, so a cursor reads every employee";
+    let message = "Step 3 · No index covers this filter, so a cursor scans every employee";
     let code = "store.openCursor()";
     if (tokens.length > 0) {
       source = store.index("nameTokens");
       range = IDBKeyRange.bound(tokens[0], `${tokens[0]}\uffff`);
-      message = `Searching for names starting with "${tokens[0]}" through the "nameTokens" index`;
+      message = `Step 3 · Search names starting with "${tokens[0]}" through the "nameTokens" index`;
       code = `store.index("nameTokens").openCursor(IDBKeyRange.bound("${tokens[0]}", "${tokens[0]}\\uffff"))`;
     } else if (division) {
       source = store.index("division");
       range = IDBKeyRange.only(division);
-      message = `Filtering by division through the "division" index`;
+      message = `Step 3 · Filter by division through the "division" index`;
       code = `store.index("division").openCursor(IDBKeyRange.only(${quote(division)}))`;
     }
     logIndexedDb(message, code);
@@ -341,7 +302,7 @@ export function searchEmployees(
       if (!cursor) {
         const sorted = [...matches.values()].sort(compareByName);
         logIndexedDb(
-          `Cursor finished: read ${formatCount(visited)} records, ${formatCount(sorted.length)} matched`,
+          `Steps 4-5 · Cursor finished: read ${formatCount(visited)} records, ${formatCount(sorted.length)} matched`,
           "request.onsuccess (cursor is null)",
           sorted,
         );
@@ -381,7 +342,7 @@ export function getHeadcount(db: IDBDatabase): Promise<Headcount> {
     let visited = 0;
 
     logIndexedDb(
-      "Counting people per division and location: there is no GROUP BY, so a cursor reads every employee",
+      "Step 3 · Count people per division and location: there is no GROUP BY, so a cursor scans every employee",
       `db.transaction(${quote(EMPLOYEES)}).objectStore(${quote(EMPLOYEES)}).openCursor()`,
     );
     const request = db.transaction(EMPLOYEES).objectStore(EMPLOYEES).openCursor();
@@ -400,7 +361,7 @@ export function getHeadcount(db: IDBDatabase): Promise<Headcount> {
             .sort((a, b) => b.count - a.count),
         };
         logIndexedDb(
-          `Cursor finished: read ${formatCount(visited)} records`,
+          `Steps 4-5 · Cursor finished: read ${formatCount(visited)} records`,
           "request.onsuccess (cursor is null)",
           headcount,
         );
@@ -429,34 +390,22 @@ export function getLastSynced(db: IDBDatabase): Promise<string | undefined> {
 
 export function countRecords(db: IDBDatabase, storeName: typeof EMPLOYEES | typeof PHOTOS): Promise<number> {
   return new Promise((resolve, reject) => {
-    logIndexedDb(
-      `Counting the records in ${quote(storeName)}`,
-      `db.transaction(${quote(storeName)}).objectStore(${quote(storeName)}).count()`,
-    );
     const request = db.transaction(storeName).objectStore(storeName).count();
-    request.onsuccess = () => {
-      logIndexedDb(`${quote(storeName)} has ${formatCount(request.result)} records`, "request.onsuccess");
-      resolve(request.result);
-    };
+    request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
 export function closeDatabase(db: IDBDatabase): void {
-  logIndexedDb(`Closing the connection to ${quote(db.name)}`, "db.close()");
   db.close();
 }
 
 export function deleteDatabase(): Promise<void> {
   return new Promise((resolve, reject) => {
-    logIndexedDb(`Deleting database ${quote(DB_NAME)}`, `indexedDB.deleteDatabase(${quote(DB_NAME)})`);
     const request = indexedDB.deleteDatabase(DB_NAME);
     request.onblocked = () =>
       warnIndexedDb("Deleting the database is waiting for other tabs to close", "request.onblocked");
-    request.onsuccess = () => {
-      logIndexedDb("Database deleted", "request.onsuccess");
-      resolve();
-    };
+    request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
