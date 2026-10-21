@@ -1,0 +1,14 @@
+.timing {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.timing strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.timing-source::before {
+  content: " · ";
+}

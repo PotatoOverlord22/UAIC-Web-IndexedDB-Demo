@@ -1,0 +1,14 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.field-grow {
+  flex: 1;
+  min-width: 260px;
+}
+
+.table-wrap.is-loading {
+  opacity: 0.5;
+}

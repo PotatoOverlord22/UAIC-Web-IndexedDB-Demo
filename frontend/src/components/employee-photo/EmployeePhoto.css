@@ -1,0 +1,7 @@
+.employee-photo {
+  flex: none;
+  display: inline-block;
+  border-radius: 20%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}

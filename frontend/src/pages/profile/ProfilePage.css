@@ -1,0 +1,52 @@
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+}
+
+.breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.breadcrumb li + li::before {
+  content: "/";
+  margin-right: 6px;
+}
+
+.level-bars,
+.people-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.level-bars li,
+.people-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.level-bars li:last-child,
+.people-list li:last-child {
+  border-bottom: none;
+}
+
+.level-bars strong {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}

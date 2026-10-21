@@ -1,0 +1,16 @@
+{
+  "name": "scripts",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "seed": "node --disable-warning=ExperimentalWarning seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "10.6.0",
+    "@types/node": "22.20.5",
+    "jdenticon": "3.3.0",
+    "typescript": "7.0.2"
+  }
+}

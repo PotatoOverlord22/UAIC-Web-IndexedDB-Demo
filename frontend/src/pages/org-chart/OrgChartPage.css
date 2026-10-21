@@ -1,0 +1,46 @@
+.org-tree,
+.org-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.org-children {
+  margin-left: 12px;
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+}
+
+.org-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.org-toggle,
+.org-toggle-spacer {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
+.org-toggle {
+  font: inherit;
+  line-height: 1;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.org-toggle:hover {
+  background: var(--surface);
+}
+
+.org-timing {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+}

@@ -1,0 +1,47 @@
+.settings .field {
+  align-items: flex-start;
+}
+
+.settings .field + .details {
+  margin-top: 16px;
+}
+
+.status-ok {
+  color: var(--green);
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.latency-field {
+  margin-bottom: 16px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.sync-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sync-progress progress {
+  width: 280px;
+  accent-color: var(--accent);
+}
